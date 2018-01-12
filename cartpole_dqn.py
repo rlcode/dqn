@@ -4,6 +4,7 @@ import torch
 import pylab
 import random
 import numpy as np
+from SumTree import SumTree
 from collections import deque
 import torch.nn as nn
 import torch.optim as optim
@@ -14,16 +15,8 @@ from torchvision import transforms
 EPISODES = 700
 
 
-# custom weights initialization called on netG and netD
-def weights_init(model):
-    classname = model.__class__.__name__
-    if classname.find('Conv') != -1:
-        nn.init.xavier_normal(model.weight.data)
-        model.bias.data.fill_(0)
-
-
 class DQN(nn.Module):
-    def __init__(self, state_size=4, action_size=2):
+    def __init__(self, state_size, action_size):
         super(DQN, self).__init__()
         self.fc = nn.Sequential(
             nn.Linear(state_size, 24),
@@ -57,11 +50,11 @@ class DQNAgent():
         self.train_start = 1000
 
         # 리플레이 메모리, 최대 크기 2000
-        self.memory = deque(maxlen=2000)
+        self.memory = deque(maxlen=20000)
 
         # 모델과 타깃 모델 생성
         self.model = DQN(state_size, action_size)
-        weights_init(self.model)
+        self.weights_init()
         self.target_model = DQN(state_size, action_size)
         self.optimizer = optim.Adam(self.model.parameters(),
                                     lr=self.learning_rate)
@@ -71,6 +64,13 @@ class DQNAgent():
 
         if self.load_model:
             self.model = torch.load('save_model/cartpole_dqn')
+
+    # weight xavier 초기화
+    def weights_init(self):
+        classname = self.model.__class__.__name__
+        if classname.find('Conv') != -1:
+            nn.init.xavier_normal(self.model.weight.data)
+            self.model.bias.data.fill_(0)
 
     # 타깃 모델을 모델의 가중치로 업데이트
     def update_target_model(self):
@@ -151,7 +151,7 @@ if __name__ == "__main__":
 
     # DQN 에이전트 생성
     agent = DQNAgent(state_size, action_size)
-
+    agent.update_target_model()
     scores, episodes = [], []
 
     for e in range(EPISODES):
