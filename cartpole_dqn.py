@@ -4,7 +4,6 @@ import torch
 import pylab
 import random
 import numpy as np
-from SumTree import SumTree
 from collections import deque
 import torch.nn as nn
 import torch.optim as optim
@@ -54,7 +53,7 @@ class DQNAgent():
 
         # 모델과 타깃 모델 생성
         self.model = DQN(state_size, action_size)
-        self.weights_init()
+        self.model.apply(self.weights_init)
         self.target_model = DQN(state_size, action_size)
         self.optimizer = optim.Adam(self.model.parameters(),
                                     lr=self.learning_rate)
@@ -66,11 +65,10 @@ class DQNAgent():
             self.model = torch.load('save_model/cartpole_dqn')
 
     # weight xavier 초기화
-    def weights_init(self):
-        classname = self.model.__class__.__name__
-        if classname.find('Conv') != -1:
-            nn.init.xavier_normal(self.model.weight.data)
-            self.model.bias.data.fill_(0)
+    def weights_init(self, m):
+        classname = m.__class__.__name__
+        if classname.find('Linear') != -1:
+            torch.nn.init.xavier_uniform(m.weight)
 
     # 타깃 모델을 모델의 가중치로 업데이트
     def update_target_model(self):
@@ -78,14 +76,17 @@ class DQNAgent():
 
     # 입실론 탐욕 정책으로 행동 선택
     def get_action(self, state):
+        state = torch.from_numpy(state)
+        state = Variable(state).float().cpu()
+        q_value = self.model(state)
+        _, action = torch.max(q_value, 1)
+
         if np.random.rand() <= self.epsilon:
-            return random.randrange(self.action_size)
-        else:
-            state = torch.from_numpy(state)
-            state = Variable(state).float().cpu()
-            q_value = self.model(state).cpu()
-            q_value = q_value.data.numpy()
-            return np.argmax(q_value[0])
+            rand_action = random.randrange(self.action_size-1)
+            if rand_action >= int(action):
+                rand_action += 1
+            return rand_action
+        return int(action)
 
     # 샘플 <s, a, r, s'>을 리플레이 메모리에 저장
     def append_sample(self, state, action, reward, next_state, done):
@@ -112,18 +113,16 @@ class DQNAgent():
 
         # 현재 상태에 대한 큐함수
         states = torch.Tensor(states)
-
         states = Variable(states).float().cpu()
         pred = self.model(states)
 
         # 행동을 one hot 인코딩
-        a = np.array(actions)
-        one_hot_action = np.zeros((len(actions), self.action_size))
-        one_hot_action[np.arange(len(actions)), a] = 1
-        one_hot_action = Variable(torch.Tensor(one_hot_action))
+        a = torch.LongTensor(actions).view(-1,1)
+        one_hot_action = torch.FloatTensor(self.batch_size, self.action_size).zero_()
+        one_hot_action.scatter_(1, a, 1)
 
         # 실제 한 행동에 대해서 업데이트 하기 위해서 큐함수를 one hot 값에 곱함
-        pred = torch.sum(pred * one_hot_action, dim=1)
+        pred = torch.sum(pred.mul(Variable(one_hot_action)), dim = 1)
 
         # 다음 상태에 대한 최대 큐함수
         next_states = torch.Tensor(next_states)
@@ -151,7 +150,6 @@ if __name__ == "__main__":
 
     # DQN 에이전트 생성
     agent = DQNAgent(state_size, action_size)
-    agent.update_target_model()
     scores, episodes = [], []
 
     for e in range(EPISODES):
