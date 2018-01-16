@@ -42,14 +42,16 @@ class DQNAgent():
         # DQN 하이퍼파라미터
         self.discount_factor = 0.99
         self.learning_rate = 0.001
+        self.memory_size = 20000
         self.epsilon = 1.0
-        self.epsilon_decay = 0.999
         self.epsilon_min = 0.01
+        self.explore_step = 5000
+        self.epsilon_decay = (self.epsilon - self.epsilon_min) / self.explore_step
         self.batch_size = 64
         self.train_start = 1000
 
         # 리플레이 메모리, 최대 크기 2000
-        self.memory = deque(maxlen=20000)
+        self.memory = deque(maxlen=self.memory_size)
 
         # 모델과 타깃 모델 생성
         self.model = DQN(state_size, action_size)
@@ -76,17 +78,14 @@ class DQNAgent():
 
     # 입실론 탐욕 정책으로 행동 선택
     def get_action(self, state):
-        state = torch.from_numpy(state)
-        state = Variable(state).float().cpu()
-        q_value = self.model(state)
-        _, action = torch.max(q_value, 1)
-
         if np.random.rand() <= self.epsilon:
-            rand_action = random.randrange(self.action_size-1)
-            if rand_action >= int(action):
-                rand_action += 1
-            return rand_action
-        return int(action)
+            return random.randrange(self.action_size)
+        else:
+            state = torch.from_numpy(state)
+            state = Variable(state).float().cpu()
+            q_value = self.model(state)
+            _, action = torch.max(q_value, 1)
+            return int(action)
 
     # 샘플 <s, a, r, s'>을 리플레이 메모리에 저장
     def append_sample(self, state, action, reward, next_state, done):
@@ -95,7 +94,7 @@ class DQNAgent():
     # 리플레이 메모리에서 무작위로 추출한 배치로 모델 학습
     def train_model(self):
         if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
+            self.epsilon -= self.epsilon_decay
         # 메모리에서 배치 크기만큼 무작위로 샘플 추출
         mini_batch = random.sample(self.memory, self.batch_size)
 
@@ -113,16 +112,17 @@ class DQNAgent():
 
         # 현재 상태에 대한 큐함수
         states = torch.Tensor(states)
-        states = Variable(states).float().cpu()
+        states = Variable(states).float()
         pred = self.model(states)
 
         # 행동을 one hot 인코딩
-        a = torch.LongTensor(actions).view(-1,1)
+        a = torch.LongTensor(actions).view(-1, 1)
+
         one_hot_action = torch.FloatTensor(self.batch_size, self.action_size).zero_()
         one_hot_action.scatter_(1, a, 1)
 
         # 실제 한 행동에 대해서 업데이트 하기 위해서 큐함수를 one hot 값에 곱함
-        pred = torch.sum(pred.mul(Variable(one_hot_action)), dim = 1)
+        pred = torch.sum(pred.mul(Variable(one_hot_action)), dim=1)
 
         # 다음 상태에 대한 최대 큐함수
         next_states = torch.Tensor(next_states)
@@ -195,5 +195,5 @@ if __name__ == "__main__":
 
                 # 이전 10개 에피소드의 점수 평균이 490보다 크면 학습 중단
                 if np.mean(scores[-min(10, len(scores)):]) > 490:
-                    torch.save(agent.model, "./save_model/cartpole_dqn.h5")
+                    torch.save(agent.model, "./save_model/cartpole_dqn")
                     sys.exit()
